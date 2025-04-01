@@ -74,7 +74,7 @@ def load_data():
         # 设置 index
         df_logs.set_index("log_id", inplace=True, drop=True)
         # 赋值
-        TASK_LOGS_DF = df_logs
+        TASK_LOGS_DF = df_logs.dropna()
 
 
 def save_data():
@@ -823,8 +823,6 @@ class MainWindow(QMainWindow):
         self.edit_bigcat.setEditable(True)
         # bug_list = list(set(['其他'] + TASKS_DF['big_category'].tolist()))
         bug_list = ['个人', '公司', '其他']
-        print('-' * 100)
-        print(bug_list)
         self.edit_bigcat.addItems(bug_list)  # 可按需初始化
 
         self.edit_subcat = QComboBox()
