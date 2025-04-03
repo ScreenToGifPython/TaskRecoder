@@ -1,0 +1,5 @@
+# 忽略 .idea 配置文件（PyCharm 或 JetBrains 系列 IDE 自动生成）
+.idea/
+
+# 忽略所有 parquet 数据文件
+*.parquet
