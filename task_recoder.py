@@ -29,7 +29,7 @@ pd.set_option('display.width', 1000)  # 表格不分段显示
 
 # ================== 全局数据结构 ===================
 # 让 task_id 仅做索引，不再保留在列中, 注意: columns里就不再包含 task_id
-tasks_column_list = ["task_id",
+tasks_column_list = [
                      "title",
                      "big_category",
                      "sub_category",
@@ -1443,5 +1443,4 @@ def main():
 
 
 if __name__ == "__main__":
-    print(111)
     main()
