@@ -29,7 +29,7 @@ pd.set_option('display.width', 1000)  # 表格不分段显示
 
 # ================== 全局数据结构 ===================
 # 让 task_id 仅做索引，不再保留在列中, 注意: columns里就不再包含 task_id
-tasks_column_list = [
+tasks_column_list = ["task_id",
                      "title",
                      "big_category",
                      "sub_category",
@@ -59,22 +59,37 @@ def load_data():
     if os.path.exists(TASKS_PARQUET_PATH):
         # 读取数据
         df_tasks = pq.read_table(TASKS_PARQUET_PATH).to_pandas()
-        # 判断字段是否一致
-        df_tasks = df_tasks.reindex(columns=tasks_column_list)
-        # 备份
-        df_tasks.to_parquet(TASKS_PARQUET_BCK_PATH)
-        # 设置 index
-        df_tasks.set_index("task_id", inplace=True, drop=True)
+
+        # 列名冲突处理：如果存在task_id列，先设为索引再删除列
+        if "task_id" in df_tasks.columns:
+            df_tasks.set_index("task_id", inplace=True)
+            df_tasks = df_tasks.reindex(columns=tasks_column_list[1:])  # 排除原task_id列
+
+        # 备份前检查列结构
+        try:
+            df_tasks.to_parquet(TASKS_PARQUET_BCK_PATH)
+        except Exception as e:
+            print(f"备份失败: {str(e)}")
         # 赋值
         TASKS_DF = df_tasks
+    else:  # 首次运行时初始化
+        TASKS_DF = pd.DataFrame(columns=tasks_column_list[1:])  # 排除task_id列
+        TASKS_DF.index.name = "task_id"
 
+    # ========== 处理日志数据 ==========
     if os.path.exists(TASK_LOGS_PARQUET_PATH):
         # 读取数据
         df_logs = pq.read_table(TASK_LOGS_PARQUET_PATH).to_pandas()
-        # 设置 index
-        df_logs.set_index("log_id", inplace=True, drop=True)
-        # 赋值
+        if "log_id" in df_logs.columns:
+            df_logs.set_index("log_id", inplace=True)
+
         TASK_LOGS_DF = df_logs.dropna()
+    else:
+        TASK_LOGS_DF = pd.DataFrame(columns=[
+            "task_id", "start_time", "end_time", "duration_min",
+            "progress_final", "execution_detail", "notes"
+        ])
+        TASK_LOGS_DF.index.name = "log_id"
 
 
 def save_data():
