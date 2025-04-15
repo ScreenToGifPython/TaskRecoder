@@ -5,8 +5,6 @@ import os
 from openai import OpenAI
 import httpx
 
-print('hhh')
-
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QTabWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QLineEdit, QPushButton, QListWidget, QComboBox, QMessageBox,
