@@ -1,0 +1,6 @@
+PySide6
+httpx
+matplotlib
+openai
+pandas
+pyarrow
