@@ -158,7 +158,8 @@ def start_task_execution(task_id):
     return new_log_id
 
 
-def end_task_execution(log_id, final_progress, user_duration, detail, notes):
+def end_task_execution(log_id, final_progress, user_duration, detail, notes, real_duration=None):
+
     global TASK_LOGS_DF
     end_time = datetime.datetime.now()
     TASK_LOGS_DF.at[log_id, "end_time"] = end_time
@@ -168,8 +169,12 @@ def end_task_execution(log_id, final_progress, user_duration, detail, notes):
         diff_min = (end_time - start_time).total_seconds() / 60.0
     else:
         diff_min = 0
-    duration_final = user_duration if user_duration > 0 else diff_min
-    duration_final = round(duration_final, 2)
+
+    if real_duration is not None:  # 优先使用真实耗时
+        duration_final = real_duration
+    else:
+        duration_final = user_duration if user_duration > 0 else diff_min
+        duration_final = round(duration_final, 2)
 
     # 进度也限制在 [0, 100]
     if final_progress < 0:
@@ -517,10 +522,12 @@ class EditLogDialog(QDialog):
 
 # ================== 结束执行时的弹窗对话框 ===================
 class EndExecutionDialog(QDialog):
-    def __init__(self, log_id, parent=None):
+    def __init__(self, log_id, duration_min, parent=None):
         super().__init__(parent)
-        self.log_id = log_id
         self.setWindowTitle("结束执行 - 填写执行明细")
+        self.log_id = log_id
+        self.main_window = parent
+        self.duration_min = duration_min  # 存储传入的分钟数
         self.setup_ui()
 
     def setup_ui(self):
@@ -534,7 +541,13 @@ class EndExecutionDialog(QDialog):
         start_time = TASK_LOGS_DF.at[self.log_id, "start_time"]
         if start_time is None:
             start_time = datetime.datetime.now()
-        diff_min = round((datetime.datetime.now() - start_time).total_seconds() / 60.0, 2)
+
+        paused_duration = self.main_window.paused_duration if self.main_window else 0
+        diff_min = round(
+                (datetime.datetime.now() - start_time).total_seconds() / 60.0
+                - paused_duration / 60,
+                2
+        )
 
         task_id = TASK_LOGS_DF.at[self.log_id, "task_id"]
         if task_id in TASKS_DF.index:
@@ -543,7 +556,7 @@ class EndExecutionDialog(QDialog):
             current_prog = 0
 
         self.edit_progress = QLineEdit(str(current_prog if current_prog else 0))
-        self.edit_duration = QLineEdit(str(diff_min))
+        self.edit_duration = QLineEdit(str(self.duration_min))
         self.edit_detail = QLineEdit()
         self.edit_notes = QLineEdit()
 
@@ -768,7 +781,11 @@ class StatsTab(QWidget):
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("NewBeePlus 任务管理系统 V2.0")
+        self.setWindowTitle("NewBeePlus 任务管理系统 V2.1")
+
+        self.is_paused = False
+        self.paused_duration = 0  # 累计暂停时间（秒）
+        self.pause_start_time = None  # 暂停开始时间
 
         load_data()
 
@@ -1026,6 +1043,12 @@ class MainWindow(QMainWindow):
         self.btn_start.clicked.connect(self.on_start_execution)
         bottom_hbox.addWidget(self.btn_start)
 
+        # 在 init_tab_execute 方法中添加暂停按钮
+        self.btn_pause = QPushButton("暂停执行")
+        self.btn_pause.clicked.connect(self.on_pause_execution)
+        self.btn_pause.setEnabled(False)
+        bottom_hbox.addWidget(self.btn_pause)
+
         self.btn_end = QPushButton("结束执行")
         self.btn_end.clicked.connect(self.on_end_execution)
         self.btn_end.setEnabled(False)
@@ -1042,6 +1065,19 @@ class MainWindow(QMainWindow):
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.update_elapsed_time)
 
+    def on_pause_execution(self):
+        if not self.is_paused:  # 暂停
+            self.timer.stop()
+            self.pause_start_time = datetime.datetime.now()
+            self.btn_pause.setText("恢复执行")
+            self.is_paused = True
+        else:  # 恢复
+            # 计算暂停期间的时间差
+            pause_end_time = datetime.datetime.now()
+            self.paused_duration += (pause_end_time - self.pause_start_time).total_seconds()
+            self.timer.start(1000)
+            self.btn_pause.setText("暂停执行")
+            self.is_paused = False
     def on_start_execution(self):
         text = self.combo_unfinished.currentText().strip()
         if not text:
@@ -1070,16 +1106,29 @@ class MainWindow(QMainWindow):
         self.start_time_for_timer = datetime.datetime.now()
         self.timer.start(1000)
 
+        self.btn_pause.setEnabled(True)
+
         # QMessageBox.information(self, "提示", f"已开始执行任务 {task_id} (log_id={self.current_log_id})")
 
     def on_end_execution(self):
         if not self.current_log_id:
             QMessageBox.warning(self, "警告", "当前没有进行中的log_id!")
             return
+        # 停止计时器并记录当前状态
+        was_paused = self.is_paused  # 保存暂停状态
+
+        # 计算分钟数（保留两位小数）
+        elapsed_minutes = round(self.elapsed_seconds / 60, 2)  # 使用存储的秒数
 
         self.timer.stop()
+        self.btn_pause.setEnabled(False)
+        self.btn_pause.setText("暂停执行")
 
-        dlg = EndExecutionDialog(self.current_log_id, self)
+        # 无论是否确认结束，都禁用暂停按钮
+        self.btn_pause.setEnabled(False)  # 新增
+        self.btn_pause.setText("暂停执行")  # 新增
+
+        dlg = EndExecutionDialog(self.current_log_id, elapsed_minutes, self)
         if dlg.exec() == QDialog.Accepted:
             self.current_log_id = None
             self.lbl_current_log.setText("当前执行log_id: 无")
@@ -1087,14 +1136,33 @@ class MainWindow(QMainWindow):
             self.btn_start.setEnabled(True)
             self.lbl_elapsed_time.setText("耗时: 00:00:00")
 
+            self.btn_pause.setEnabled(False)
+            self.is_paused = False
+            self.paused_duration = 0
+
             self.refresh_task_lists()
             self.refresh_logs_table()
+        else:
+            # 用户取消后恢复执行状态
+            if not was_paused:  # 如果之前没有处于暂停状态
+                self.timer.start(1000)  # 重启计时器
+            self.btn_pause.setEnabled(True)  # 恢复暂停按钮可用
+
+            # 恢复暂停状态显示
+            if was_paused:
+                self.btn_pause.setText("恢复执行")
+                self.is_paused = True
 
     def update_elapsed_time(self):
         if not self.start_time_for_timer:
             return
+        # 计算实际耗时（总耗时 - 暂停时间）
         delta = datetime.datetime.now() - self.start_time_for_timer
-        total_seconds = int(delta.total_seconds())
+        total_seconds = int(delta.total_seconds() - self.paused_duration)
+
+        # 新增：存储总秒数
+        self.elapsed_seconds = total_seconds  # 需要先在__init__中添加 self.elapsed_seconds = 0
+
         hh = total_seconds // 3600
         mm = (total_seconds % 3600) // 60
         ss = total_seconds % 60
@@ -1439,7 +1507,7 @@ def main():
                                     8 8888  .8'   `8. `88888.  8b   `8.`8888. 8 8888 `Y8.                             
                                     8 8888 .888888888. `88888. `8b.  ;8.`8888 8 8888   `Y8.                           
                                     8 8888.8'       `8. `88888. `Y8888P ,88P' 8 8888     `Y8.                         
-                                                                                                                      
+
 8 888888888o.   8 8888888888       ,o888888o.        ,o888888o.     8 888888888o.      8 8888888888   8 888888888o.   
 8 8888    `88.  8 8888            8888     `88.   . 8888     `88.   8 8888    `^888.   8 8888         8 8888    `88.  
 8 8888     `88  8 8888         ,8 8888       `8. ,8 8888       `8b  8 8888        `88. 8 8888         8 8888     `88  
